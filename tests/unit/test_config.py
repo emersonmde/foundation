@@ -16,6 +16,12 @@ def _write_toml(tmp_path: Path, content: str) -> Path:
 
 
 class TestLoadConfig:
+    @pytest.fixture(autouse=True)
+    def _isolate_telegram_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Prevent real .env values from leaking into config tests."""
+        monkeypatch.setenv("FOUNDATION_TELEGRAM_TOKEN", "")
+        monkeypatch.setenv("FOUNDATION_TELEGRAM_USER_ID", "0")
+
     def test_loads_example_config(self, tmp_path: Path) -> None:
         """The example config file should parse successfully."""
         cfg_path = Path(__file__).parents[2] / "config.toml"
@@ -135,3 +141,76 @@ daily_token_budget = 1000
         config = load_config(p)
         assert config.foundation.log_level == "DEBUG"
         assert config.usage.daily_token_budget == 1000
+
+    def test_telegram_defaults(self, tmp_path: Path) -> None:
+        p = _write_toml(
+            tmp_path,
+            """
+[foundation]
+data_dir = "/tmp/data"
+log_dir = "/tmp/logs"
+""",
+        )
+        config = load_config(p)
+        assert config.telegram.user_id == 0
+        assert config.telegram.bot_token == ""
+
+    def test_telegram_user_id_from_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FOUNDATION_TELEGRAM_USER_ID", "98765")
+        p = _write_toml(
+            tmp_path,
+            """
+[foundation]
+data_dir = "/tmp/data"
+log_dir = "/tmp/logs"
+""",
+        )
+        config = load_config(p)
+        assert config.telegram.user_id == 98765
+
+    def test_telegram_token_from_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FOUNDATION_TELEGRAM_TOKEN", "bot123:abc")
+        p = _write_toml(
+            tmp_path,
+            """
+[foundation]
+data_dir = "/tmp/data"
+log_dir = "/tmp/logs"
+""",
+        )
+        config = load_config(p)
+        assert config.telegram.bot_token == "bot123:abc"
+
+    def test_telegram_invalid_user_id_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FOUNDATION_TELEGRAM_USER_ID", "not_a_number")
+        p = _write_toml(
+            tmp_path,
+            """
+[foundation]
+data_dir = "/tmp/data"
+log_dir = "/tmp/logs"
+""",
+        )
+        with pytest.raises(ValueError, match="FOUNDATION_TELEGRAM_USER_ID"):
+            load_config(p)
+
+    def test_telegram_negative_user_id_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FOUNDATION_TELEGRAM_USER_ID", "-1")
+        p = _write_toml(
+            tmp_path,
+            """
+[foundation]
+data_dir = "/tmp/data"
+log_dir = "/tmp/logs"
+""",
+        )
+        with pytest.raises(ValueError, match="FOUNDATION_TELEGRAM_USER_ID"):
+            load_config(p)

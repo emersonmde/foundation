@@ -58,6 +58,13 @@ Read these before making changes:
 - Never mount the Docker socket inside containers
 - Don't over-engineer — the MVP defers Docker, code review, intervention detection, memory, PTY, concurrency, and MCP tools
 
+## Dev Environment
+
+- **Venv:** `.venv` created with `python3.12 -m venv .venv` (system Python is conda 3.9, do not use it)
+- **Run all checks:** `.venv/bin/tox run` (format, lint, typecheck, test, audit)
+- **Run one check:** `.venv/bin/tox run -e test` (or `format`, `lint`, `typecheck`, `audit`)
+- **Secrets:** `.env` file (gitignored) for `FOUNDATION_TELEGRAM_TOKEN`. Never commit secrets.
+
 ## Current State
 
 MVP development in progress. See `docs/milestones.md` for current milestone and what's been completed.

@@ -31,6 +31,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run-task", help="Invoke claude -p with a prompt")
     run.add_argument("prompt", help="The prompt to send to claude")
 
+    sub.add_parser("telegram-test", help="Start bot, send greeting, wait for interaction")
+
     return parser
 
 
@@ -205,6 +207,90 @@ async def _run_task(config_path: Path, prompt: str) -> int:
         await db.close()
 
 
+async def _telegram_test(config_path: Path) -> int:
+    """Start bot, send greeting with inline keyboard, wait for one interaction."""
+    import signal
+
+    from foundation.db.connection import connect
+    from foundation.db.schema import apply_schema
+    from foundation.telegram.adapter import CallbackResult, InlineButton
+    from foundation.telegram.bot import TelegramBot
+
+    try:
+        config = load_config(config_path)
+    except Exception as e:
+        print(f"FAIL: Config error: {e}")
+        return 1
+
+    if not config.telegram.bot_token:
+        print("FAIL: FOUNDATION_TELEGRAM_TOKEN not set (check .env file)")
+        return 1
+
+    if config.telegram.user_id == 0:
+        print("FAIL: telegram.user_id not configured in config.toml")
+        return 1
+
+    db_path = config.foundation.data_dir / "foundation.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = await connect(db_path)
+    try:
+        await apply_schema(db)
+        bot = TelegramBot(config.telegram, db)
+
+        # Handle SIGINT/SIGTERM
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, bot.request_shutdown)
+
+        await bot.start()
+        print("Bot started. Sending greeting...")
+
+        adapter = bot.adapter
+        msg_id = await adapter.send_message(
+            "<b>Foundation</b> telegram-test\n\nBot is running. Tap a button or send a reply.",
+            buttons=[
+                [
+                    InlineButton(text="Working!", callback_data="test_ok"),
+                    InlineButton(text="Test callback", callback_data="test_cb"),
+                ]
+            ],
+        )
+        print(f"Greeting sent (message_id={msg_id}). Waiting for interaction...")
+
+        # Wait for either a callback or a reply
+        done, pending = await asyncio.wait(
+            [
+                asyncio.create_task(adapter.wait_for_callback(msg_id, timeout=120)),
+                asyncio.create_task(adapter.wait_for_reply(timeout=120)),
+            ],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        for task in done:
+            try:
+                result = task.result()
+                if isinstance(result, CallbackResult):
+                    print(f"Got callback: {result.data}")
+                    await adapter.edit_message(
+                        msg_id, f"Callback received: <code>{result.data}</code>"
+                    )
+                elif isinstance(result, str):
+                    print(f"Got reply: {result}")
+                    await adapter.send_message(f"Echo: {result}")
+            except TimeoutError:
+                print("Timed out waiting for interaction.")
+
+        print("Test complete. Shutting down...")
+        await bot.stop()
+    finally:
+        await db.close()
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point."""
     parser = _build_parser()
@@ -216,6 +302,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(asyncio.run(_dump_state(args.config)))
     elif args.command == "run-task":
         sys.exit(asyncio.run(_run_task(args.config, args.prompt)))
+    elif args.command == "telegram-test":
+        sys.exit(asyncio.run(_telegram_test(args.config)))
     else:
         parser.print_help()
         sys.exit(1)

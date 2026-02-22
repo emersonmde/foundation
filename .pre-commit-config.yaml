@@ -9,5 +9,6 @@ repos:
     rev: v1.15.0
     hooks:
       - id: mypy
-        additional_dependencies: [aiosqlite, pytest, pytest-asyncio]
+        # Keep in sync with pyproject.toml [tool.tox.env.typecheck] deps
+        additional_dependencies: [aiosqlite, python-telegram-bot, python-dotenv, pytest, pytest-asyncio]
         args: [--strict]

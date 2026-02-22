@@ -9,7 +9,7 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from foundation.config import ClaudeConfig, Config, FoundationConfig, UsageConfig
+from foundation.config import ClaudeConfig, Config, FoundationConfig, TelegramConfig, UsageConfig
 from foundation.db.connection import connect
 from foundation.db.schema import apply_schema
 
@@ -61,6 +61,7 @@ def test_config(tmp_path: Path, stub_command: str) -> Config:
             model="sonnet",
         ),
         usage=UsageConfig(),
+        telegram=TelegramConfig(user_id=12345, bot_token="test-token-123"),
     )
 
 

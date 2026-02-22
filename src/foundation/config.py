@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
@@ -36,12 +39,21 @@ class UsageConfig:
 
 
 @dataclass(frozen=True)
+class TelegramConfig:
+    """Telegram bot settings."""
+
+    user_id: int = 0
+    bot_token: str = ""
+
+
+@dataclass(frozen=True)
 class Config:
     """Top-level configuration."""
 
     foundation: FoundationConfig
     claude: ClaudeConfig
     usage: UsageConfig
+    telegram: TelegramConfig
 
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
@@ -55,6 +67,8 @@ def load_config(path: Path) -> Config:
         ValueError: If required fields are missing or invalid.
         tomllib.TOMLDecodeError: If the TOML is malformed.
     """
+    load_dotenv()
+
     with open(path, "rb") as f:
         raw = tomllib.load(f)
 
@@ -95,6 +109,20 @@ def load_config(path: Path) -> Config:
     claude_fields = {k: v for k, v in claude_raw.items() if k in ClaudeConfig.__dataclass_fields__}
     claude_fields["max_turns"] = max_turns
 
+    # Telegram: both values from env vars (set in .env, gitignored)
+    telegram_bot_token = os.environ.get("FOUNDATION_TELEGRAM_TOKEN", "")
+    telegram_user_id_str = os.environ.get("FOUNDATION_TELEGRAM_USER_ID", "0")
+    try:
+        telegram_user_id = int(telegram_user_id_str)
+    except ValueError:
+        raise ValueError(
+            f"FOUNDATION_TELEGRAM_USER_ID must be an integer, got {telegram_user_id_str!r}"
+        ) from None
+    if telegram_user_id < 0:
+        raise ValueError(
+            f"FOUNDATION_TELEGRAM_USER_ID must be non-negative, got {telegram_user_id}"
+        )
+
     return Config(
         foundation=FoundationConfig(
             data_dir=data_dir,
@@ -105,5 +133,9 @@ def load_config(path: Path) -> Config:
         usage=UsageConfig(
             daily_token_budget=daily_budget,
             weekly_token_budget=weekly_budget,
+        ),
+        telegram=TelegramConfig(
+            user_id=telegram_user_id,
+            bot_token=telegram_bot_token,
         ),
     )

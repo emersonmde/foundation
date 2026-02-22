@@ -16,3 +16,8 @@ max_turns = 0
 # 0 = unlimited
 daily_token_budget = 0
 weekly_token_budget = 0
+
+
+# Telegram config is read from .env (gitignored):
+#   FOUNDATION_TELEGRAM_TOKEN — bot token from BotFather
+#   FOUNDATION_TELEGRAM_USER_ID — your numeric Telegram user ID

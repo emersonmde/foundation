@@ -9,6 +9,8 @@ description = "Autonomous development orchestrator"
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.20.0",
+    "python-telegram-bot>=21.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +52,7 @@ mypy_path = "src"
 module = "aiosqlite.*"
 ignore_missing_imports = true
 
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
@@ -72,7 +75,7 @@ commands = [["ruff", "check", "--fix", "src/", "tests/"]]
 
 [tool.tox.env.typecheck]
 description = "Type check with mypy (strict)"
-deps = ["mypy>=1.15", "aiosqlite>=0.20.0", "pytest>=8.0", "pytest-asyncio>=0.24"]
+deps = ["mypy>=1.15", "aiosqlite>=0.20.0", "python-telegram-bot>=21.0", "python-dotenv>=1.0", "pytest>=8.0", "pytest-asyncio>=0.24"]
 commands = [["mypy", "src/", "tests/"]]
 
 [tool.tox.env.test]
