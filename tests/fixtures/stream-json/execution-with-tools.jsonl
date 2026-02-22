@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"test-session-002","tools":["Read","Edit","Bash","Glob","Grep"],"model":"claude-sonnet-4-20250514"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll read the file for you."},{"type":"tool_use","id":"toolu_abc123","name":"Read","input":{"file_path":"/src/main.py"}}]},"usage":{"input_tokens":200,"output_tokens":30,"cache_read_input_tokens":50,"cache_creation_input_tokens":0}}
+{"type":"tool_result","tool_use_id":"toolu_abc123","content":"def main():\n    print('hello')\n"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The file contains a simple main function that prints 'hello'."}]},"usage":{"input_tokens":280,"output_tokens":18,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}
+{"type":"result","session_id":"test-session-002","result":"The file contains a simple main function that prints 'hello'.","status":"success","duration_ms":5678,"usage":{"input_tokens":480,"output_tokens":48,"cache_read_input_tokens":150,"cache_creation_input_tokens":0}}

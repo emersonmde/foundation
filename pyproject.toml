@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foundation"
+version = "0.1.0"
+description = "Autonomous development orchestrator"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.9",
+    "mypy>=1.15",
+    "pip-audit",
+    "tox>=4",
+    "pre-commit",
+]
+
+[project.scripts]
+foundation = "foundation.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 99
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PERF", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["foundation"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "aiosqlite.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["smoke: requires real claude CLI and burns tokens (deselect with '-m not smoke')"]
+
+[tool.tox]
+env_list = ["format", "lint", "typecheck", "test", "audit"]
+
+[tool.tox.env.format]
+description = "Auto-format code with ruff"
+skip_install = true
+deps = ["ruff>=0.9"]
+commands = [["ruff", "format", "src/", "tests/"]]
+
+[tool.tox.env.lint]
+description = "Lint with ruff"
+skip_install = true
+deps = ["ruff>=0.9"]
+commands = [["ruff", "check", "--fix", "src/", "tests/"]]
+
+[tool.tox.env.typecheck]
+description = "Type check with mypy (strict)"
+deps = ["mypy>=1.15", "aiosqlite>=0.20.0", "pytest>=8.0", "pytest-asyncio>=0.24"]
+commands = [["mypy", "src/", "tests/"]]
+
+[tool.tox.env.test]
+description = "Run unit + integration tests"
+deps = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+commands = [["pytest", "tests/", "-m", "not smoke", "-x"]]
+
+[tool.tox.env.audit]
+description = "Audit dependencies for known CVEs"
+deps = ["pip-audit"]
+commands = [["pip-audit"]]
+
+[tool.tox.env.smoke]
+description = "Smoke tests — real claude CLI, burns tokens"
+deps = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+commands = [["pytest", "tests/smoke/", "--run-smoke", "-x"]]

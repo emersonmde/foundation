@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"test-session-004","tools":["Read","Edit","Bash"],"model":"claude-sonnet-4-20250514"}
+{"type":"result","session_id":"test-session-004","result":"","status":"error","duration_ms":500,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"error":"Rate limit exceeded. Please retry after 60 seconds."}

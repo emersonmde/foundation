@@ -1,0 +1,18 @@
+[foundation]
+data_dir = "~/.foundation/data"
+log_dir = "~/.foundation/logs"
+log_level = "INFO"
+
+[claude]
+cli_command = "claude"
+model = "sonnet"
+plan_permission_mode = "plan"
+# WARNING: bypasses all permission prompts. Only use in sandboxed environments.
+execute_permission_mode = "bypassPermissions"
+# 0 = unlimited
+max_turns = 0
+
+[usage]
+# 0 = unlimited
+daily_token_budget = 0
+weekly_token_budget = 0
