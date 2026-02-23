@@ -128,10 +128,54 @@ Self-update restart (Milestone 0.5) should use `os.execv()` to replace the curre
 
 **Implementation:** Track two usage categories separately — "orchestrator" (exempt from pacing) and "coding" (subject to daily/weekly budget). Both count against the actual Max quota, but only coding usage is throttled.
 
-## AD-13: MVP runs unsandboxed on Foundation's own repo
+## AD-13: Autonomous work management, not reactive task execution
+
+**Decision:** The orchestrator manages its own workload like a coworker, not a task queue processor. The human provides overall direction ("work on X", "also pick up Y", "finish all milestones on Z") and the orchestrator autonomously discovers work, makes progress, switches between projects at logical stopping points, and asks for guidance when priorities are unclear or decisions are beyond its scope.
+
+**Rationale:** A reactive system that only works when a Telegram message arrives wastes the Max subscription and requires constant babysitting — the opposite of the SDM model. The human's role is Sr. SDM / Product Owner: they set direction and make one-way-door decisions. The orchestrator handles everything else.
+
+**What the orchestrator decides autonomously:**
+- What to work on next within a project (reads milestones, picks up the next one)
+- When to switch between projects (at logical stopping points, not mid-milestone)
+- How to distribute limited token budget across projects (proportional progress, not all-or-nothing)
+- Tactical implementation decisions (approach, error handling, retry strategy)
+- When a milestone is done and what comes next
+
+**What gets escalated to the human:**
+- Product questions (feature behavior, scope, UX)
+- Priority conflicts between projects when no clear winner
+- One-way-door architectural decisions
+- Whether to continue past documented milestones into uncharted work
+- Genuine blockers the orchestrator can't resolve
+
+**Consequence:** The orchestrator needs:
+- A "project" concept with its own repo, docs, milestone state, and priority
+- A work planner that reads project docs to discover available work
+- Priority-aware scheduling that considers token budget as a constraint
+- The ability to ask the human targeted questions ("I have X and Y available, which should I focus on?") rather than waiting passively
+
+## AD-14: Extensible LLM backend, starting with Claude CLI
+
+**Decision:** The orchestrator invokes AI agents through an abstract interface. The initial (and only MVP) implementation is `claude -p` via subprocess, but the interface must support future backends: `codex` CLI, OpenAI SDK, Claude SDK, Gemini SDK, `opencode`, or others.
+
+**Rationale:** The AI tooling landscape is evolving rapidly. Today, `claude -p` on a Max subscription is the best option for personal automation. Tomorrow, we may want to use Codex for certain tasks, or use the Claude API directly when SDK support for Max plans improves, or use a different provider entirely. The orchestrator's core logic (task lifecycle, approval flow, plan-then-execute) is independent of how the AI is invoked.
+
+**Interface shape:** An `AgentBackend` ABC that provides:
+- `plan(prompt, ...) -> PlanResult` — invoke AI in read-only/planning mode
+- `execute(prompt, session_ref, ...) -> ExecutionResult` — invoke AI with write permissions, optionally resuming a prior session
+- Structured result types with session references, output text, token usage, and status
+
+**Current implementation:** `ClaudeCliBackend` wrapping `ClaudeSession` — the only backend for Milestone 0.x. The abstraction is introduced when a second backend is added, not before. Until then, the orchestrator uses `ClaudeSession` directly, but the design keeps backend-specific code isolated from orchestration logic.
+
+**What we do NOT do:**
+- Don't build the abstraction prematurely — introduce it when we add a second backend
+- Don't try to normalize wildly different APIs into one interface — allow backend-specific capabilities
+- Don't couple the orchestrator to Claude-specific concepts (session IDs, stream-json, permission modes)
+
+## AD-15: MVP runs unsandboxed on Foundation's own repo
 
 **Decision:** Milestone 0 (the self-bootstrapping MVP) runs coding agents directly on the host, without Docker sandboxing. Agents operate only on Foundation's own repository.
 
-**Rationale:** The MVP needs to work on the first shot. Docker sandboxing adds significant complexity (image building, network setup, Squid proxy, volume mounts). Since the MVP only operates on its own codebase, the blast radius is already limited — the worst case is a broken Foundation that gets rolled back. Sandboxing is added in Milestone 1 before any external repos are touched.
+**Rationale:** The MVP needs to work on the first shot. Docker sandboxing adds significant complexity (image building, network setup, Squid proxy, volume mounts). Since the MVP only operates on its own codebase, the blast radius is already limited — the worst case is a broken Foundation that gets rolled back. Sandboxing is added in Milestone 3 before any external repos are touched.
 
 **Risk acceptance:** An agent could damage the host system. Mitigated by: (1) the repo is git-tracked so changes are reversible, (2) `--permission-mode plan` for planning prevents writes, (3) the human approves all plans before execution.

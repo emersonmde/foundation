@@ -179,6 +179,78 @@ When `--max-turns N` is reached, the session exits with an error. The result eve
 
 `claude -p` cannot be launched inside another Claude Code session (detects `CLAUDECODE` env var and refuses). The orchestrator daemon must unset this variable or never run inside Claude Code itself. Inside Docker containers this is not an issue since the container is a fresh environment.
 
+## Non-Interactive Behavior (`-p` mode)
+
+Tested 2026-02-22. These behaviors are critical for orchestrator prompt engineering.
+
+### Permission Denials
+
+When a tool requires permission that hasn't been granted, `-p` mode does **not** block waiting for input. Instead:
+
+1. The tool call is immediately denied
+2. The agent sees the denial and may retry or give up
+3. The final JSON output includes a `permission_denials` array with the full tool call details:
+
+```jsonc
+{
+  "permission_denials": [
+    {
+      "tool_name": "Write",
+      "tool_use_id": "toolu_01Ei6NLg...",
+      "tool_input": {
+        "file_path": "/path/to/file.txt",
+        "content": "file contents the agent wanted to write"
+      }
+    }
+  ]
+}
+```
+
+The orchestrator can see exactly what the agent tried to do, including full inputs, even when permissions blocked it. Useful for plan-mode validation or building an approval loop.
+
+### AskUserQuestion as an Escalation Channel
+
+`AskUserQuestion` is immediately denied in `-p` mode (no interactive terminal). The questions and options appear in `permission_denials` with the full structured input — question text, options with labels and descriptions, and the multiSelect flag.
+
+This is a **feature for orchestration**, not just a limitation. When a sub-agent hits genuine ambiguity or a significant design decision, the denied `AskUserQuestion` gives the orchestrator a structured escalation signal:
+
+1. Agent encounters ambiguity or a one-way-door decision during execution
+2. Agent calls `AskUserQuestion` — immediately denied, appears in `permission_denials`
+3. Orchestrator parses the structured question from the JSON output
+4. Orchestrator forwards the question to the human via Telegram (inline keyboard maps naturally to the options)
+5. Human answers on their phone
+6. Orchestrator resumes the session with `--resume <session-id>`, providing the answer in the prompt
+7. Agent has full context of what it asked and proceeds with the human's decision
+
+This means the orchestrator doesn't need a custom MCP tool for agent-to-human escalation — the built-in `AskUserQuestion` denial already provides a structured format with typed options. The orchestrator just needs to detect it in the output and bridge it to Telegram.
+
+**Prompt engineering consideration:** Agents should be instructed to distinguish between:
+- **Two-way-door decisions** (easily reversible) — make a reasonable choice and move on
+- **One-way-door decisions** (hard to reverse, architectural) — use `AskUserQuestion` to escalate
+
+This maps directly to the variable autonomy levels in the requirements.
+
+### Resume is Directory-Scoped
+
+`--resume <session-id>` fails with "No conversation found" if the working directory has changed since the session was created. Sessions are stored under `~/.claude/projects/<project-hash>/`, and the project hash is derived from the working directory. The orchestrator must ensure it resumes from the same directory the session was started in.
+
+### Strategies for Tool Permissions in Automation
+
+| Strategy | When to use |
+|---|---|
+| `--allowedTools "Write Edit Bash(git:*)"` | Granular control — whitelist specific tools/commands |
+| `--permission-mode bypassPermissions` | Inside a Docker sandbox where the sandbox IS the permission boundary |
+| `--permission-mode acceptEdits` | Trust file edits, still gate bash commands |
+| Resume loop parsing `permission_denials` | When the orchestrator wants to approve each action individually |
+
+### Implications for Orchestrator Prompts
+
+- For planning agents, `--permission-mode plan` naturally blocks all writes — no extra config needed
+- For execution agents inside Docker, `--permission-mode bypassPermissions` is safe since the container is the boundary
+- Use `--append-system-prompt` to inject task context, coding conventions, and decision-making guidelines
+- `--max-turns` provides a hard stop if an agent loops — the session can still be resumed later
+- Agents should be coached on when to escalate (one-way doors) vs. decide autonomously (two-way doors)
+
 ## Model Selection
 
 - `--model sonnet` or `--model opus` for latest aliases

@@ -42,7 +42,8 @@ Early development. See [docs/milestones.md](docs/milestones.md) for the roadmap.
 
 - **Milestone 0.1** (Core Infrastructure): Complete
 - **Milestone 0.2** (Telegram Interface): Complete
-- **Milestones 0.3–0.5**: In progress toward self-bootstrapping MVP
+- **Milestone 0.3** (Main Event Loop + Task Lifecycle): Complete
+- **Milestones 0.4–0.5**: In progress toward self-bootstrapping MVP
 
 The MVP is the point where Foundation can develop itself. Everything after the MVP is developed *by* Foundation.
 
@@ -78,7 +79,7 @@ tox run -e lint       # ruff linter
 tox run -e typecheck  # mypy strict
 ```
 
-92 tests. Smoke tests that burn real tokens are gated behind `--run-smoke`.
+108 tests. Smoke tests that burn real tokens are gated behind `--run-smoke`.
 
 ## License
 

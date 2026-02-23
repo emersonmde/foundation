@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
-from foundation.telegram.adapter import (
+from foundation.messaging.adapter import (
     CallbackResult,
     KeyboardLayout,
     MessagingAdapter,
@@ -48,6 +48,8 @@ class StubAdapter(MessagingAdapter):
         buttons: KeyboardLayout | None = None,
         parse_mode: str = "HTML",
     ) -> str:
+        if not text:
+            raise ValueError("Cannot send empty message")
         msg_id = str(self._next_id)
         self._next_id += 1
         self.sent_messages.append(

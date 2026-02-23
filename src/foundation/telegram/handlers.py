@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -18,7 +19,8 @@ from telegram.ext import (
 
 from foundation.db.tasks import list_tasks
 from foundation.db.usage import get_usage_summary
-from foundation.telegram.adapter import CallbackResult, TelegramAdapter
+from foundation.messaging.adapter import CallbackResult, IncomingMessage
+from foundation.telegram.adapter import TelegramAdapter
 from foundation.telegram.formatting import format_help, format_status
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ logger = logging.getLogger(__name__)
 _KEY_ADAPTER = "adapter"
 _KEY_DB = "db"
 _KEY_USER_ID = "user_id"
+_KEY_INCOMING_QUEUE = "incoming_queue"
 
 
 class _AuthFilter(filters.BaseFilter):
@@ -91,7 +94,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.debug("Resolved pending reply with: %s", text[:50])
         return
 
-    # Default: acknowledge the message
+    # Push to orchestrator's incoming queue if configured
+    queue: asyncio.Queue[IncomingMessage] | None = context.bot_data.get(_KEY_INCOMING_QUEUE)
+    if queue is not None:
+        try:
+            queue.put_nowait(IncomingMessage.from_text(text))
+        except asyncio.QueueFull:
+            logger.error("Incoming message queue is full, dropping message: %s", text[:50])
+            await update.effective_message.reply_text(
+                "Queue is full — try again later.",
+                parse_mode=None,
+            )
+            return
+        logger.debug("Queued incoming message: %s", text[:50])
+        await update.effective_message.reply_text(
+            f"Queued: {text[:100]}",
+            parse_mode=None,
+        )
+        return
+
+    # Fallback when no queue (e.g. telegram-test mode): echo
     await update.effective_message.reply_text(
         f"Received: {text[:100]}",
         parse_mode=None,
@@ -147,6 +169,7 @@ def register_handlers(
     user_id: int,
     adapter: TelegramAdapter,
     db: aiosqlite.Connection,
+    incoming_queue: asyncio.Queue[IncomingMessage] | None = None,
 ) -> None:
     """Wire up all handlers with auth filtering."""
     auth = auth_filter(user_id)
@@ -154,6 +177,7 @@ def register_handlers(
     app.bot_data[_KEY_ADAPTER] = adapter
     app.bot_data[_KEY_DB] = db
     app.bot_data[_KEY_USER_ID] = user_id
+    app.bot_data[_KEY_INCOMING_QUEUE] = incoming_queue
 
     app.add_handler(CommandHandler("start", handle_start, filters=auth))
     app.add_handler(CommandHandler("help", handle_help, filters=auth))

@@ -1,4 +1,4 @@
-"""CLI entry points: health-check, dump-state, run-task."""
+"""CLI entry points: health-check, dump-state, run-task, run."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("prompt", help="The prompt to send to claude")
 
     sub.add_parser("telegram-test", help="Start bot, send greeting, wait for interaction")
+    sub.add_parser("run", help="Start the orchestrator daemon")
 
     return parser
 
@@ -213,7 +214,7 @@ async def _telegram_test(config_path: Path) -> int:
 
     from foundation.db.connection import connect
     from foundation.db.schema import apply_schema
-    from foundation.telegram.adapter import CallbackResult, InlineButton
+    from foundation.messaging.adapter import CallbackResult, InlineButton
     from foundation.telegram.bot import TelegramBot
 
     try:
@@ -291,6 +292,80 @@ async def _telegram_test(config_path: Path) -> int:
     return 0
 
 
+async def _run_daemon(config_path: Path) -> int:
+    """Start the orchestrator daemon with Telegram frontend."""
+    import signal
+
+    from foundation.db.connection import connect
+    from foundation.db.schema import apply_schema
+    from foundation.messaging.adapter import IncomingMessage
+    from foundation.orchestrator import Orchestrator
+    from foundation.telegram.bot import TelegramBot
+
+    try:
+        config = load_config(config_path)
+    except Exception as e:
+        print(f"FAIL: Config error: {e}")
+        return 1
+
+    if not config.telegram.bot_token:
+        print("FAIL: FOUNDATION_TELEGRAM_TOKEN not set (check .env file)")
+        return 1
+
+    if config.telegram.user_id == 0:
+        print("FAIL: telegram.user_id not configured in config.toml")
+        return 1
+
+    logger = setup_logging(config.foundation.log_level, config.foundation.log_dir)
+    logger.info("Foundation starting...")
+
+    db_path = config.foundation.data_dir / "foundation.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = await connect(db_path)
+
+    try:
+        await apply_schema(db)
+
+        incoming_queue: asyncio.Queue[IncomingMessage] = asyncio.Queue()
+        bot = TelegramBot(config.telegram, db, incoming_queue=incoming_queue)
+        orchestrator = Orchestrator(
+            claude_config=config.claude,
+            db=db,
+            messaging=bot.adapter,
+            incoming_queue=incoming_queue,
+        )
+
+        # Signal handlers for graceful shutdown
+        loop = asyncio.get_running_loop()
+
+        _shutdown_task: asyncio.Task[None] | None = None
+
+        def handle_signal() -> None:
+            nonlocal _shutdown_task
+            if _shutdown_task is not None:
+                return
+            logger.info("Shutdown signal received")
+            bot.request_shutdown()
+            _shutdown_task = loop.create_task(orchestrator.shutdown())
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, handle_signal)
+
+        await bot.start()
+        logger.info("Foundation running — Telegram + Orchestrator")
+
+        try:
+            await orchestrator.run()
+        finally:
+            await bot.stop()
+
+    finally:
+        await db.close()
+
+    logger.info("Foundation stopped")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point."""
     parser = _build_parser()
@@ -304,6 +379,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(asyncio.run(_run_task(args.config, args.prompt)))
     elif args.command == "telegram-test":
         sys.exit(asyncio.run(_telegram_test(args.config)))
+    elif args.command == "run":
+        sys.exit(asyncio.run(_run_daemon(args.config)))
     else:
         parser.print_help()
         sys.exit(1)

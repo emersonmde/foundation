@@ -10,9 +10,11 @@ Foundation automates the supervisor role. It's an always-on daemon that orchestr
 
 ## Hard Constraints
 
-### All AI runs through `claude -p` on a Max plan
+### AI invocation starts with `claude -p`, designed for extensibility
 
-Every AI invocation — sub-agents doing development AND the orchestrator's own reasoning — must use the Claude Code CLI in headless mode (`claude -p`). This bills against the Max 20x subscription via OAuth. We never use the Anthropic API directly or API keys. The Claude Agent SDK (Python/TypeScript) requires API keys and explicitly prohibits Max plan OAuth tokens for third-party tools, so it cannot be used. Shelling out to the CLI is the supported path for personal automation.
+The initial (and only MVP) AI invocation method is the Claude Code CLI in headless mode (`claude -p`), billing against the Max 20x subscription via OAuth. We never use the Anthropic API directly or API keys for the MVP. The Claude Agent SDK (Python/TypeScript) requires API keys and explicitly prohibits Max plan OAuth tokens for third-party tools, so it cannot be used yet.
+
+However, the architecture must support adding other LLM backends in the future: `codex` CLI, Claude SDK (when Max plan support arrives), OpenAI SDK, Gemini SDK, `opencode`, or others. The orchestrator's core logic (task lifecycle, approval flow, plan-then-execute) is independent of how the AI is invoked. Backend-specific code should be isolated so new backends can be added without touching orchestration logic. See AD-14.
 
 ### Security through architecture, not prompts
 
@@ -197,12 +199,36 @@ Foundation operates as a **Software Development Manager (SDM)** reporting to the
 - Report up: progress, blockers, completions, risks
 - Maintain team knowledge (memory files, conventions)
 
-**What gets escalated to the human:**
+**Autonomous work management (AD-13):**
+
+The orchestrator is NOT a reactive request-response bot that waits to be told each step. It is a coworker who manages their own workload. The human provides overall direction — "work on project X", "also pick up project Y", "finish all milestones on Z" — and the orchestrator figures out what to do next, when to switch context, and when to ask for guidance.
+
+This means the orchestrator must:
+
+- **Discover work autonomously.** When assigned a project, read its docs (milestones, requirements, CLAUDE.md) to understand what work exists. When one milestone completes, look for what's next. If the human says "work on this until done," keep going through milestones without being told each one.
+
+- **Manage priorities across projects.** When working on multiple projects, decide which one to work on next based on: explicit human priority, available token budget, whether a project is blocked, and logical stopping points. If priorities are unclear, ask — don't guess. A simple "I have X and Y available, which should I focus on?" is exactly right.
+
+- **Find logical stopping points.** Don't abandon a project mid-milestone to switch. Complete a natural unit of work (a milestone, a meaningful task) before context-switching. If token budget is limited, distribute progress across projects proportionally rather than burning the whole budget on one.
+
+- **Respect capacity constraints.** Token budget isn't just a throttle — it's a scheduling input. If budget is tight and two projects need work, make meaningful progress on both rather than exhausting budget on one. If budget allows, stay focused on the higher-priority project until a stopping point.
+
+- **Ask when uncertain.** The human wants to be consulted on one-way-door decisions, unclear priorities, and product questions — not on tactical implementation choices. "Should I use approach A or B?" is fine to decide autonomously. "Should we build feature X at all?" must be escalated.
+
+**What the orchestrator decides autonomously (tactical):**
+- Which milestone/task to work on next within a project
+- When to switch between projects (at logical stopping points)
+- Implementation approach, error handling, retry strategy
+- When to continue vs. pause for budget reasons
+
+**What gets escalated to the human (strategic / one-way doors):**
 - Product questions: feature behavior, UX choices, scope decisions
 - Ambiguous requirements that need product judgment
+- Priority conflicts between projects when no clear winner
 - Significant architectural decisions with long-term implications
 - Situations where the team is stuck and the SDM can't unblock them
 - Budget/resource concerns (quota running low)
+- Whether to continue past documented milestones into uncharted work
 
 **On-demand reporting via Telegram:**
 - Progress report: what's been done, what's in flight, what's next

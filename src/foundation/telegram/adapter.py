@@ -1,85 +1,23 @@
-"""MessagingAdapter ABC and TelegramAdapter implementation."""
+"""TelegramAdapter — Telegram-backed MessagingAdapter implementation."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from foundation.messaging.adapter import (
+    CallbackResult,
+    KeyboardLayout,
+    MessagingAdapter,
+)
 from foundation.telegram.formatting import split_message
 
 if TYPE_CHECKING:
     from telegram import Bot, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class InlineButton:
-    """A single inline keyboard button."""
-
-    text: str
-    callback_data: str
-
-
-@dataclass(frozen=True)
-class CallbackResult:
-    """Result from a callback query."""
-
-    callback_id: str
-    data: str
-    message_id: str
-
-
-KeyboardLayout = list[list[InlineButton]]
-
-
-class MessagingAdapter(ABC):
-    """Abstract interface for human communication.
-
-    Only one waiter is supported at a time for wait_for_callback (per message_id)
-    and wait_for_reply. Concurrent calls raise RuntimeError.
-    """
-
-    @abstractmethod
-    async def send_message(
-        self,
-        text: str,
-        *,
-        buttons: KeyboardLayout | None = None,
-        parse_mode: str = "HTML",
-    ) -> str:
-        """Send a message and return its ID."""
-
-    @abstractmethod
-    async def edit_message(
-        self,
-        message_id: str,
-        text: str,
-        *,
-        buttons: KeyboardLayout | None = None,
-        parse_mode: str = "HTML",
-    ) -> None:
-        """Edit an existing message."""
-
-    @abstractmethod
-    async def wait_for_callback(
-        self,
-        message_id: str,
-        *,
-        timeout: float | None = None,
-    ) -> CallbackResult:
-        """Wait for a callback query on a specific message."""
-
-    @abstractmethod
-    async def wait_for_reply(
-        self,
-        *,
-        timeout: float | None = None,
-    ) -> str:
-        """Wait for the next text reply from the user."""
 
 
 def _build_markup(buttons: KeyboardLayout | None) -> InlineKeyboardMarkup | None:

@@ -23,9 +23,11 @@ The plumbing everything else depends on.
 
 **Verification:** Python module can invoke `claude -p` with a prompt, parse the streaming output, and return a structured result. All from a test script, no daemon yet.
 
-### Milestone 0.2: Telegram Interface
+### Milestone 0.2: Telegram Interface ✅
 
 The human control surface. Once this works, the human can interact with the system from their phone.
+
+**Status:** Complete (2026-02-22). `tox` passes all environments (format, lint, typecheck, 92 tests, audit).
 
 **Deliverables:**
 - Telegram bot: manual lifecycle integration with asyncio loop
@@ -37,21 +39,27 @@ The human control surface. Once this works, the human can interact with the syst
 
 **Verification:** Send a message to the bot, get a response. Send a message with an inline keyboard, tap a button, bot acknowledges the selection. Unauthorized users are rejected.
 
-### Milestone 0.3: Main Event Loop + Task Lifecycle
+### Milestone 0.3: Main Event Loop + Task Lifecycle ✅
 
 The orchestrator's brain. Receives tasks, plans them, gets approval, executes them.
 
-**Deliverables:**
-- asyncio main loop with human-message priority (Telegram messages always processed before agent work)
-- Task state machine: pending → planning → awaiting_approval → executing → complete/failed
-- Planning phase: spawn `claude -p --permission-mode plan`, capture plan output
-- Plan review: send plan summary to Telegram with approve/reject/modify buttons, wait for response
-- Execution phase: spawn `claude -p` with write permissions on approval (runs on host, Foundation repo only)
-- Completion detection: parse result event from stream-json, notify via Telegram
-- Task persistence: save task state to SQLite so it survives restarts
-- Daemon mode: long-running foreground process (no platform-specific service manager required)
+**Status:** Complete (2026-02-22). `tox` passes all environments (format, lint, typecheck, 108 tests, audit).
 
-**Verification:** Send "Add a docstring to the config loader" via Telegram. Foundation plans the change, sends the plan for approval, executes on approval, reports completion. Human can send /status at any point during execution and get an immediate response.
+**Deliverables:**
+- Transport-agnostic `foundation.messaging` package with `MessagingAdapter` ABC and `IncomingMessage` type
+- Orchestrator class with two concurrent coroutines (message listener + main loop)
+- Task state machine: pending → planning → awaiting_approval → executing → complete/failed/cancelled
+- Planning phase: spawn `claude -p --permission-mode plan`, capture plan output
+- Plan review: send plan summary via messaging with approve/reject/modify buttons, wait for response
+- Modify flow: resume planning session with human feedback, re-send for approval
+- Execution phase: resume session with write permissions on approval (runs on host, Foundation repo only)
+- Completion detection: parse result event from stream-json, notify via messaging
+- Task persistence: save task state to SQLite so it survives restarts
+- Startup recovery: reset interrupted tasks on restart (planning→pending, executing→failed)
+- Daemon mode: `foundation run` entry point with signal handling for graceful shutdown
+- Claude CLI stub `auto` mode: routes fixture by permission-mode for lifecycle testing
+
+**Verification:** Integration tests demonstrate: submit task → plan (stub) → approve → execute (stub) → complete notification. Reject and modify flows also tested. All using StubAdapter + Claude CLI stub + in-memory SQLite.
 
 ### Milestone 0.4: Usage Pacing
 
@@ -89,6 +97,8 @@ The final piece: Foundation can apply its own changes and restart into the new v
 **MVP achieved.** After Milestone 0.5, the human can describe features via Telegram and Foundation builds them. The human's role shifts from writing code to reviewing plans and answering product questions.
 
 **What the MVP intentionally defers:**
+- Autonomous work planning (orchestrator is reactive — works on what it's told, one task at a time)
+- Project concept (MVP operates on Foundation only, no multi-project awareness)
 - Docker sandboxing (agents run on host — acceptable because the only project is Foundation itself)
 - Code review phase (human reviews via Telegram plan approval)
 - Test phase automation (human verifies or orchestrator runs a simple test command)
@@ -98,6 +108,7 @@ The final piece: Foundation can apply its own changes and restart into the new v
 - Multi-task concurrency (one task at a time)
 - MCP tools for agent communication (parse output instead)
 - Variable autonomy levels (MVP operates at Level 1 — approve everything)
+- LLM backend extensibility (Claude CLI only; AD-14 abstraction added when a second backend is needed)
 
 ---
 
@@ -105,16 +116,35 @@ The final piece: Foundation can apply its own changes and restart into the new v
 
 Everything below is developed by Foundation itself, with human oversight via Telegram.
 
-### Milestone 1: Variable Autonomy
+### Milestone 1: Project Management + Autonomous Work Planning
+
+The orchestrator becomes a coworker, not a task queue. It manages its own workload across multiple projects, discovers work from project docs, and makes scheduling decisions. See AD-13.
 
 **Deliverables:**
-- Configurable autonomy level (1/2/3) stored in config, changeable via Telegram
+- Project data model: config (repo path, docs location, priority), DB schema (project_id on tasks), registration via config or Telegram
+- Work discovery: read project milestones/requirements docs to determine available work units. When one milestone completes, identify what's next without being told.
+- Work planner: decide what to work on next based on explicit human priority, available token budget, blocking state, and logical stopping points
+- Human directives: "work on X", "also pick up Y", "finish all milestones on Z", "focus on X until I say otherwise" — parsed and stored as project-level guidance
+- Project switching: complete a natural unit of work (milestone, meaningful task) before context-switching. Don't abandon work mid-milestone.
+- Capacity-aware scheduling: when token budget is limited, distribute progress across projects proportionally rather than exhausting budget on one
+- Priority escalation: when priorities are unclear or conflicting, ask the human ("I have X and Y available, which should I focus on?") rather than guessing
+- Idle detection: when all projects are blocked, out of documented scope, or need human decisions, pause and notify — don't spin
+
+**Verification:** Register two projects. Tell Foundation to work on both. It reads their milestones, starts on the higher-priority one, completes a milestone, considers whether to continue or switch, and asks the human when priorities are ambiguous. When one project is blocked on approval, it switches to the other. When budget is tight, it makes proportional progress on both.
+
+### Milestone 2: Variable Autonomy
+
+The approval dial. Builds on project management — at L3, the orchestrator auto-approves routine work and keeps going through milestones autonomously.
+
+**Deliverables:**
+- Configurable autonomy level (1/2/3) stored in config, changeable via Telegram (globally or per-project)
 - Level 1: approve every plan (current MVP behavior)
 - Level 2: approve plans, get notified of completions, escalate on problems
 - Level 3: auto-approve plans matching learned patterns, only escalate on interventions or ambiguity
-- Escalation policy: always escalate product questions, ambiguity, stuck situations regardless of level
+- Escalation policy: always escalate product questions, ambiguity, stuck situations, and one-way-door decisions regardless of level
+- Autonomy + project management interaction: at L3 with multiple projects, Foundation works through milestones across projects with minimal human involvement, only surfacing strategic decisions
 
-### Milestone 2: Docker Sandbox
+### Milestone 3: Docker Sandbox
 
 Sub-agents run in isolated containers. Prerequisite for working on any repo other than Foundation.
 
@@ -127,7 +157,7 @@ Sub-agents run in isolated containers. Prerequisite for working on any repo othe
 - Container config hardening: cap-drop, read-only root, resource limits, no socket mount
 - Squid domain allowlist: configurable per project
 
-### Milestone 3: Full Task Lifecycle
+### Milestone 4: Full Task Lifecycle
 
 Complete the plan → approve → execute → review → test pipeline.
 
@@ -138,7 +168,7 @@ Complete the plan → approve → execute → review → test pipeline.
 - Checkpoint/rollback: git commit at phase boundaries, ability to reset
 - Decision logging: record all human decisions with timestamps and reasoning
 
-### Milestone 4: Intervention Detection
+### Milestone 5: Intervention Detection
 
 Detect when agents are going off the rails and take corrective action.
 
@@ -149,7 +179,7 @@ Detect when agents are going off the rails and take corrective action.
 - Configurable thresholds
 - Execution log capture for post-mortem analysis
 
-### Milestone 5: Long-Lived Memory
+### Milestone 6: Long-Lived Memory
 
 Structured knowledge that persists across tasks and improves over time.
 
@@ -160,18 +190,18 @@ Structured knowledge that persists across tasks and improves over time.
 - Memory updates and pruning after task completion
 - Token budget tracking for memory injection
 
-### Milestone 6: Multi-Task Concurrency
+### Milestone 7: Multi-Task Concurrency
 
-Run multiple tasks in parallel with intelligent quota management.
+Run multiple tasks in parallel. Distinct from project-level scheduling (Milestone 1) — this is about executing N tasks simultaneously.
 
 **Deliverables:**
-- Task queue with configurable concurrency limit
-- Model routing: Sonnet for routine, Opus for reasoning
-- Concurrent session limiting
-- Task prioritization: urgent tasks preempt queued work
+- Configurable concurrency limit (max simultaneous `claude -p` sessions)
+- Model routing: Sonnet for routine work, Opus for planning/reasoning
+- Concurrent session management and resource isolation
 - Budget distribution across concurrent tasks
+- Interaction with work planner: which tasks are safe to parallelize (different projects, independent branches)
 
-### Milestone 7: PTY Proxy (Interactive Command Support)
+### Milestone 8: PTY Proxy (Interactive Command Support)
 
 Let agents interact with long-running processes.
 
@@ -181,7 +211,7 @@ Let agents interact with long-running processes.
 - Session persistence across `claude -p` invocations
 - Timeout handling
 
-### Milestone 8: Polish + Operational Maturity
+### Milestone 9: Polish + Operational Maturity
 
 Production hardening for daily use.
 

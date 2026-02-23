@@ -10,6 +10,7 @@ import aiosqlite
 from telegram.ext import Application
 
 from foundation.config import TelegramConfig
+from foundation.messaging.adapter import IncomingMessage
 from foundation.telegram.adapter import TelegramAdapter
 from foundation.telegram.handlers import register_handlers
 
@@ -28,9 +29,15 @@ class TelegramBot:
     Or use run() which blocks until request_shutdown() is called.
     """
 
-    def __init__(self, config: TelegramConfig, db: aiosqlite.Connection) -> None:
+    def __init__(
+        self,
+        config: TelegramConfig,
+        db: aiosqlite.Connection,
+        incoming_queue: asyncio.Queue[IncomingMessage] | None = None,
+    ) -> None:
         self._config = config
         self._db = db
+        self._incoming_queue = incoming_queue
         self._shutdown_event = asyncio.Event()
 
         self._app: Application[Any, Any, Any, Any, Any, Any] = (
@@ -49,7 +56,9 @@ class TelegramBot:
     async def start(self) -> None:
         """Initialize and start the bot (polling mode)."""
         await self._app.initialize()
-        register_handlers(self._app, self._config.user_id, self._adapter, self._db)
+        register_handlers(
+            self._app, self._config.user_id, self._adapter, self._db, self._incoming_queue
+        )
         await self._app.start()
 
         if self._app.updater is None:

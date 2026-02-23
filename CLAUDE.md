@@ -19,7 +19,7 @@ The orchestrator is an SDM (Software Development Manager). The human is the Sr. 
 Read these before making changes:
 
 - `docs/requirements.md` — Feature requirements and hard constraints
-- `docs/architecture-decisions.md` — AD-1 through AD-13, rationale for major decisions
+- `docs/architecture-decisions.md` — AD-1 through AD-15, rationale for major decisions
 - `docs/milestones.md` — Development roadmap (Milestone 0.1–0.5 = MVP, then post-MVP)
 - `docs/testing-strategy.md` — 4-layer testing approach, Claude CLI stub, fixtures
 - `docs/research-cli.md` — `claude -p` flags, stream-json format, session management
@@ -53,7 +53,7 @@ Read these before making changes:
 - Self-update restart uses `os.execv()` (works on both platforms), not systemd-specific mechanisms.
 
 ### What NOT to Do
-- Never use the Anthropic API or API keys — everything goes through `claude -p`
+- For the MVP, never use the Anthropic API or API keys — everything goes through `claude -p` (see AD-14 for future extensibility)
 - Never derive Docker container configs from AI output or external data (AD-6)
 - Never mount the Docker socket inside containers
 - Don't over-engineer — the MVP defers Docker, code review, intervention detection, memory, PTY, concurrency, and MCP tools

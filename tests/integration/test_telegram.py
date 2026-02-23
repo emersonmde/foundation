@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from foundation.telegram.adapter import CallbackResult, InlineButton
+from foundation.messaging.adapter import CallbackResult, InlineButton
 from foundation.testing.telegram_stub import StubAdapter
 
 
