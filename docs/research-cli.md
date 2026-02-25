@@ -257,3 +257,57 @@ This maps directly to the variable autonomy levels in the requirements.
 - `--model claude-sonnet-4-6` for specific model IDs
 - `--fallback-model sonnet` for automatic fallback when primary is overloaded
 - These control the model for the entire session
+
+## Bidirectional Streaming: `--input-format stream-json`
+
+Accepts NDJSON on stdin, enabling multi-turn conversations within a single process:
+
+```json
+{"type": "user", "message": {"role": "user", "content": "Your message"}, "session_id": "default"}
+```
+
+Messages queue and process sequentially. The first message uses `"session_id": "default"`; subsequent messages use the session ID from the output stream.
+
+### Limitations (as of February 2026)
+
+**Cannot provide `tool_result` for pending calls.** When an agent calls `AskUserQuestion` and it's denied, there's no way to send the answer back via stdin as a `tool_result`. The CLI injects a synthetic "No response requested" message that breaks the conversation chain. ([Issue #16712](https://github.com/anthropics/claude-code/issues/16712))
+
+**Known reliability issues:**
+- Sending a second user message can cause the process to hang ([Issue #3187](https://github.com/anthropics/claude-code/issues/3187), resolved but suggests fragility)
+- Session `.jsonl` files get duplicate entries that grow exponentially with each message ([Issue #5034](https://github.com/anthropics/claude-code/issues/5034))
+
+**Verdict for Foundation:** The resume loop (`permission_denials` → Telegram → `--resume` with answer) is more reliable than raw `--input-format stream-json` for HITL. The Agent SDK (`claude-agent-sdk`) wraps this same mechanism but adds proper `canUseTool` callbacks that pause execution cleanly — that's the right path for real-time HITL when we add the SDK backend (see AD-14).
+
+### `--permission-prompt-tool`
+
+Delegates permission decisions to an MCP tool. An alternative to `canUseTool` callbacks for programmatic permission handling without the Agent SDK. Worth investigating as a potential improvement to the CLI backend's HITL mechanism.
+
+## Session Lifetime and Persistence
+
+### Sessions do NOT expire — there is no TTL
+
+The Anthropic Messages API is entirely stateless. Sessions are local `.jsonl` transcript files in `~/.claude/projects/<project-hash>/`. When `--resume` is used, Claude Code reads the transcript and replays the full conversation history to the API. Sessions can theoretically live forever.
+
+### Why `--resume` fails ("No conversation found")
+
+Five known root causes — none are TTL:
+
+1. **Working directory mismatch:** Sessions are scoped by `cwd`. The project hash in the storage path is derived from the working directory. Resuming from a different directory fails. ([Issue #5768](https://github.com/anthropics/claude-code/issues/5768))
+
+2. **`cleanupPeriodDays` cleanup:** Claude Code deletes session files older than `cleanupPeriodDays` (default: 30 days) on startup. **Do NOT set to 0** — this disables transcript persistence entirely (bug, [Issue #23710](https://github.com/anthropics/claude-code/issues/23710)). Set to `99999` to effectively disable cleanup.
+
+3. **`sessions-index.json` desync:** The resume picker reads an index file that can get out of sync with actual `.jsonl` files on disk. Direct `--resume <session-id>` bypasses the picker. ([Issue #18311](https://github.com/anthropics/claude-code/issues/18311))
+
+4. **Context compaction stripping headers:** When Claude Code compacts a long conversation, it can strip the `system` header from the `.jsonl` file, making the session unfindable by the resume mechanism.
+
+5. **Process killed before flush:** SIGTERM/SIGKILL before the transcript is written to disk leaves an incomplete or missing `.jsonl` file. ([Issue #12730](https://github.com/anthropics/claude-code/issues/12730))
+
+### Implications for the orchestrator
+
+The plan-then-execute pattern (plan → human approval via Telegram → resume for execution) can involve 30+ minute gaps. This is safe because there's no TTL.
+
+**Required mitigations:**
+- Set `cleanupPeriodDays: 99999` in `~/.claude/settings.json` on the deployment machine
+- Always pass explicit `cwd` to `asyncio.create_subprocess_exec()` matching the project's repo path
+- Handle resume failure gracefully: if `--resume` fails, fall back to a fresh session with the plan included in the prompt
+- Use graceful cancellation (SIGTERM + wait) rather than SIGKILL to ensure transcripts are flushed

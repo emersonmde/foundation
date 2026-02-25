@@ -12,9 +12,11 @@ Foundation automates the supervisor role. It's an always-on daemon that orchestr
 
 ### AI invocation starts with `claude -p`, designed for extensibility
 
-The initial (and only MVP) AI invocation method is the Claude Code CLI in headless mode (`claude -p`), billing against the Max 20x subscription via OAuth. We never use the Anthropic API directly or API keys for the MVP. The Claude Agent SDK (Python/TypeScript) requires API keys and explicitly prohibits Max plan OAuth tokens for third-party tools, so it cannot be used yet.
+The initial (and only MVP) AI invocation method is the Claude Code CLI in headless mode (`claude -p`), billing against the Max 20x subscription via OAuth. We never use the Anthropic API directly or API keys for the MVP.
 
-However, the architecture must support adding other LLM backends in the future: `codex` CLI, Claude SDK (when Max plan support arrives), OpenAI SDK, Gemini SDK, `opencode`, or others. The orchestrator's core logic (task lifecycle, approval flow, plan-then-execute) is independent of how the AI is invoked. Backend-specific code should be isolated so new backends can be added without touching orchestration logic. See AD-14.
+The Claude Agent SDK (`claude-agent-sdk` on PyPI) is the most compelling second backend. It wraps the same CLI binary but provides proper `canUseTool` callbacks for real-time HITL — when an agent needs approval or asks a question, the callback pauses execution, the orchestrator forwards the question to Telegram, and returns the answer without restarting the process. The TOS situation for Agent SDK + Max OAuth is contradictory (written legal docs prohibit it, but an Anthropic employee publicly stated it's fine for personal use) — acceptable risk for personal automation, worth revisiting as TOS stabilizes. See AD-1 for details.
+
+The architecture must support both backends (and future ones: `codex` CLI, OpenAI SDK, Gemini SDK, etc.) through a common interface. Critically, **HITL must be backend-internal**: each backend encapsulates its own mechanism for handling permission requests and `AskUserQuestion` escalations, presenting the same async interface to the orchestrator. See AD-14.
 
 ### Security through architecture, not prompts
 

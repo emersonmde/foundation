@@ -9,7 +9,7 @@ The orchestrator is an SDM (Software Development Manager). The human is the Sr. 
 ## Architecture
 
 - **Python 3.12+**, asyncio-based daemon. Development on macOS, production on Linux (Fedora). Must run on both.
-- **All AI through `claude -p`** — headless CLI mode, billed against Max 20x subscription. No API keys, no Agent SDK.
+- **MVP AI through `claude -p`** — headless CLI mode, billed against Max 20x subscription. Agent SDK (`claude-agent-sdk`) planned as second backend for real-time HITL (see AD-1, AD-14).
 - **Telegram** for human interaction (python-telegram-bot v20+)
 - **SQLite** for operational state (tasks, usage, sessions). **Markdown files** for knowledge/memory.
 - **Security through architecture, not prompts** — Docker sandboxing, network isolation, hardcoded container configs
@@ -19,8 +19,8 @@ The orchestrator is an SDM (Software Development Manager). The human is the Sr. 
 Read these before making changes:
 
 - `docs/requirements.md` — Feature requirements and hard constraints
-- `docs/architecture-decisions.md` — AD-1 through AD-15, rationale for major decisions
-- `docs/milestones.md` — Development roadmap (Milestone 0.1–0.5 = MVP, then post-MVP)
+- `docs/architecture-decisions.md` — AD-1 through AD-16, rationale for major decisions
+- `docs/milestones.md` — Development roadmap (Milestone 0.1–0.6 = MVP, then post-MVP)
 - `docs/testing-strategy.md` — 4-layer testing approach, Claude CLI stub, fixtures
 - `docs/research-cli.md` — `claude -p` flags, stream-json format, session management
 - `docs/research-telegram.md` — Telegram bot integration patterns

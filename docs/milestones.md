@@ -61,22 +61,40 @@ The orchestrator's brain. Receives tasks, plans them, gets approval, executes th
 
 **Verification:** Integration tests demonstrate: submit task → plan (stub) → approve → execute (stub) → complete notification. Reject and modify flows also tested. All using StubAdapter + Claude CLI stub + in-memory SQLite.
 
-### Milestone 0.4: Usage Pacing
+### Milestone 0.4: Orchestrator Agent Loop
+
+Rearchitect the orchestrator from a procedural state machine to a fresh-session agent loop with MCP tools. See AD-8 for the full design.
+
+Milestone 0.3 built a working plan-approve-execute flow as hardcoded Python state transitions. This milestone replaces that with an AI-driven loop where Claude decides what to do next via MCP tools. The plan-approve-execute flow still works, but it's now one of many actions Claude can take — alongside checking sub-agent status, messaging the human, updating memory, and deciding to wait.
+
+**Deliverables:**
+- Python MCP server implementing orchestrator tools: `create_task`, `update_task`, `query_tasks`, `send_message`, `request_human_input`, `spawn_agent`, `cancel_agent`, `read_memory`, `update_memory`, `wait`
+- `wait(seconds)` tool: async sleep that wakes early on incoming Telegram messages. Claude decides the duration based on context (minutes when monitoring sub-agents, hours when idle).
+- Fresh-session loop: each iteration starts a new `claude -p` session with current state injected (task list, recent actions, active sub-agents, budget status) via system prompt. Context is cleared between iterations — state persists only in SQLite and markdown.
+- Orchestrator system prompt: SDM role definition, decision principles, available tools, examples of typical iterations.
+- Rearchitect existing plan-approve-execute flow to work through MCP tools instead of hardcoded state machine.
+- Orchestrator `--allowedTools` config: restrict built-in Claude Code tools to safe read-only operations (Read, Glob, Grep, safe Bash patterns). See AD-16.
+- Permission denial forwarding: when the orchestrator's Claude tries something outside the allowlist, Python code deterministically forwards to Telegram for human approval.
+- Stub MCP server for integration testing (analogous to existing Claude CLI stub).
+
+**Verification:** Integration tests demonstrate the fresh-session loop: orchestrator iteration receives a task → reasons about it → calls `spawn_agent` to start planning → calls `wait(60)` → next iteration checks sub-agent result → calls `send_message` with plan → calls `request_human_input` for approval → next iteration resumes execution. All using stubs. Also test: incoming Telegram message wakes the `wait` tool early. Also test: tool denial is forwarded to Telegram.
+
+### Milestone 0.5: Usage Pacing
 
 Prevents Foundation from burning through the weekly quota in a day.
 
 **Deliverables:**
 - Token usage tracking: extract input/output token counts from stream-json result events
-- Usage ledger: record per-session token usage in SQLite with timestamps
+- Usage ledger: record per-session token usage in SQLite with timestamps (both orchestrator and coding categories)
 - Daily and weekly budget calculation (configurable targets, default 75%/75%)
-- Budget enforcement: before starting a coding session, check remaining budget — if exhausted, pause the work queue
-- Scheduled wake-up: when paused for budget, set an asyncio timer to resume in the next work window
+- Budget enforcement: before starting a coding session, check remaining budget — if exhausted, the orchestrator's `wait` tool handles scheduling (Claude decides how long to sleep based on budget state injected into context)
 - Telegram alerts: notify when budget is low, when agents pause, when they resume
-- Orchestrator exemption: `claude -p` calls to handle Telegram messages are never throttled
+- Orchestrator exemption: orchestrator loop iterations are never throttled by budget
+- Model selection: orchestrator uses Sonnet for routine iterations, Opus for complex reasoning
 
-**Verification:** Configure a low daily budget. Submit several tasks. Foundation works through them until it hits the budget, pauses, notifies via Telegram, and resumes after the configured interval. Human can still interact with Foundation via Telegram while coding agents are paused.
+**Verification:** Configure a low daily budget. Submit several tasks. Foundation works through them until it hits the budget, pauses (via `wait`), notifies via Telegram, and resumes after the configured interval. Human can still interact with Foundation via Telegram while coding agents are paused.
 
-### Milestone 0.5: Self-Update + Restart
+### Milestone 0.6: Self-Update + Restart
 
 The final piece: Foundation can apply its own changes and restart into the new version.
 
@@ -94,7 +112,7 @@ The final piece: Foundation can apply its own changes and restart into the new v
 
 ---
 
-**MVP achieved.** After Milestone 0.5, the human can describe features via Telegram and Foundation builds them. The human's role shifts from writing code to reviewing plans and answering product questions.
+**MVP achieved.** After Milestone 0.6, the human can describe features via Telegram and Foundation builds them. The human's role shifts from writing code to reviewing plans and answering product questions.
 
 **What the MVP intentionally defers:**
 - Autonomous work planning (orchestrator is reactive — works on what it's told, one task at a time)
@@ -102,13 +120,12 @@ The final piece: Foundation can apply its own changes and restart into the new v
 - Docker sandboxing (agents run on host — acceptable because the only project is Foundation itself)
 - Code review phase (human reviews via Telegram plan approval)
 - Test phase automation (human verifies or orchestrator runs a simple test command)
-- Intervention detection heuristics (human monitors via /status and /report)
-- Long-lived memory system (use CLAUDE.md files for now)
+- Intervention detection heuristics (human monitors via /status and /report; Python heuristics added post-MVP)
+- Long-lived memory system (basic read/update_memory MCP tools exist, but no structured knowledge management)
 - PTY proxy
 - Multi-task concurrency (one task at a time)
-- MCP tools for agent communication (parse output instead)
 - Variable autonomy levels (MVP operates at Level 1 — approve everything)
-- LLM backend extensibility (Claude CLI only; AD-14 abstraction added when a second backend is needed)
+- LLM backend extensibility (Claude CLI only; Agent SDK backend added post-MVP per AD-14)
 
 ---
 
@@ -146,15 +163,17 @@ The approval dial. Builds on project management — at L3, the orchestrator auto
 
 ### Milestone 3: Docker Sandbox
 
-Sub-agents run in isolated containers. Prerequisite for working on any repo other than Foundation.
+Sub-agents run in isolated containers. Prerequisite for working on any repo other than Foundation. See AD-16 for the two-tier permission model.
 
 **Deliverables:**
 - Docker image for dev containers: Python, Node, Rust toolchains, Claude Code CLI
 - Compose template: internal network + Squid proxy for egress filtering
-- Container lifecycle management: create, start, exec, stop, remove per task
+- Container lifecycle management: create, start, exec, stop, remove per task (integrates with `spawn_agent`/`cancel_agent` MCP tools from Milestone 0.4)
+- Auth sharing: `CLAUDE_CODE_OAUTH_TOKEN` env var (from `claude setup-token`) + minimal `.claude.json` with `hasCompletedOnboarding: true`. Separate `settings.json` for containers (no plugins, `cleanupPeriodDays: 99999`). See AD-16.
+- Sub-agents run with `--dangerously-skip-permissions` inside container (container IS the permission boundary)
 - Workspace provisioning: clone repo, checkout branch, bind-mount into container
 - Branch isolation: each task gets its own git branch
-- Container config hardening: cap-drop, read-only root, resource limits, no socket mount
+- Container config hardening: cap-drop, read-only root, resource limits, no socket mount (AD-6)
 - Squid domain allowlist: configurable per project
 
 ### Milestone 4: Full Task Lifecycle
