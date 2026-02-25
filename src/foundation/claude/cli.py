@@ -8,9 +8,10 @@ import os
 import shlex
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from foundation.claude.events import (
+    PermissionDenial,
     ResultEvent,
     StreamEvent,
     SystemInitEvent,
@@ -35,6 +36,7 @@ class ClaudeResult:
     events: list[StreamEvent]
     usage: TokenUsage
     return_code: int
+    permission_denials: list[PermissionDenial] = field(default_factory=list)
 
 
 class ClaudeSession:
@@ -49,6 +51,10 @@ class ClaudeSession:
         permission_mode: str = "plan",
         max_turns: int = 0,
         resume_session_id: str | None = None,
+        mcp_config: str | None = None,
+        strict_mcp: bool = False,
+        allowed_tools: list[str] | None = None,
+        append_system_prompt: str | None = None,
         extra_flags: list[str] | None = None,
     ) -> None:
         self.prompt = prompt
@@ -57,6 +63,10 @@ class ClaudeSession:
         self.permission_mode = permission_mode
         self.max_turns = max_turns
         self.resume_session_id = resume_session_id
+        self.mcp_config = mcp_config
+        self.strict_mcp = strict_mcp
+        self.allowed_tools = allowed_tools
+        self.append_system_prompt = append_system_prompt
         self.extra_flags = extra_flags or []
         self._process: asyncio.subprocess.Process | None = None
         self._return_code: int = -1
@@ -73,6 +83,18 @@ class ClaudeSession:
 
         if self.resume_session_id:
             parts.extend(["--resume", self.resume_session_id])
+
+        if self.mcp_config:
+            parts.extend(["--mcp-config", self.mcp_config])
+
+        if self.strict_mcp:
+            parts.append("--strict-mcp-config")
+
+        if self.allowed_tools:
+            parts.extend(["--allowedTools", ",".join(self.allowed_tools)])
+
+        if self.append_system_prompt:
+            parts.extend(["--append-system-prompt", self.append_system_prompt])
 
         parts.extend(self.extra_flags)
 
@@ -149,6 +171,7 @@ def _aggregate_result(events: list[StreamEvent], return_code: int) -> ClaudeResu
     status = "unknown"
     duration_ms = 0
     usage = TokenUsage()
+    permission_denials: list[PermissionDenial] = []
 
     for event in events:
         if isinstance(event, SystemInitEvent):
@@ -159,6 +182,7 @@ def _aggregate_result(events: list[StreamEvent], return_code: int) -> ClaudeResu
             status = event.status
             duration_ms = event.duration_ms
             usage = event.usage
+            permission_denials = event.permission_denials
 
     return ClaudeResult(
         session_id=session_id,
@@ -168,6 +192,7 @@ def _aggregate_result(events: list[StreamEvent], return_code: int) -> ClaudeResu
         events=events,
         usage=usage,
         return_code=return_code,
+        permission_denials=permission_denials,
     )
 
 

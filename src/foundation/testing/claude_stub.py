@@ -29,6 +29,8 @@ _SCENARIO_TO_FIXTURE = {
     "rate_limit": "rate-limit-error.jsonl",
     "tools": "execution-with-tools.jsonl",
     "plan": "plan-output.jsonl",
+    "permission_denied": "permission-denied.jsonl",
+    "orchestrator": "orchestrator-iteration.jsonl",
 }
 
 _PERMISSION_MODE_TO_FIXTURE = {
@@ -56,6 +58,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--session-id", type=str, default=None)
     parser.add_argument("--permission-mode", type=str, default="plan")
     parser.add_argument("--model", type=str, default="sonnet")
+    parser.add_argument("--mcp-config", type=str, default=None)
+    parser.add_argument("--strict-mcp-config", action="store_true")
+    parser.add_argument("--allowedTools", type=str, default=None)
+    parser.add_argument("--append-system-prompt", type=str, default=None)
     parser.add_argument("prompt", nargs="?", default="")
 
     args = parser.parse_args(argv)

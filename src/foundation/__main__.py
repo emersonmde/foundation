@@ -329,7 +329,7 @@ async def _run_daemon(config_path: Path) -> int:
         incoming_queue: asyncio.Queue[IncomingMessage] = asyncio.Queue()
         bot = TelegramBot(config.telegram, db, incoming_queue=incoming_queue)
         orchestrator = Orchestrator(
-            claude_config=config.claude,
+            config=config,
             db=db,
             messaging=bot.adapter,
             incoming_queue=incoming_queue,

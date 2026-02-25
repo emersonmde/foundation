@@ -12,6 +12,7 @@ from foundation.claude.events import (
     ResultEvent,
     SystemInitEvent,
     ToolResultEvent,
+    ToolUseBlock,
 )
 
 
@@ -54,6 +55,57 @@ class TestClaudeSession:
         assert "--max-turns" in cmd
         idx = cmd.index("--max-turns")
         assert cmd[idx + 1] == "5"
+
+    async def test_build_command_with_mcp_config(self) -> None:
+        session = ClaudeSession(
+            "hello",
+            mcp_config="/tmp/mcp.json",
+        )
+        cmd = session._build_command()
+        assert "--mcp-config" in cmd
+        idx = cmd.index("--mcp-config")
+        assert cmd[idx + 1] == "/tmp/mcp.json"
+
+    async def test_build_command_with_strict_mcp(self) -> None:
+        session = ClaudeSession(
+            "hello",
+            mcp_config="/tmp/mcp.json",
+            strict_mcp=True,
+        )
+        cmd = session._build_command()
+        assert "--strict-mcp-config" in cmd
+
+    async def test_build_command_with_allowed_tools(self) -> None:
+        session = ClaudeSession(
+            "hello",
+            allowed_tools=["Read", "Glob", "Grep"],
+        )
+        cmd = session._build_command()
+        assert "--allowedTools" in cmd
+        idx = cmd.index("--allowedTools")
+        assert cmd[idx + 1] == "Read,Glob,Grep"
+
+    async def test_build_command_with_append_system_prompt(self) -> None:
+        session = ClaudeSession(
+            "hello",
+            append_system_prompt="You are an SDM.",
+        )
+        cmd = session._build_command()
+        assert "--append-system-prompt" in cmd
+        idx = cmd.index("--append-system-prompt")
+        assert cmd[idx + 1] == "You are an SDM."
+
+    async def test_build_command_prompt_always_last(self) -> None:
+        session = ClaudeSession(
+            "the prompt",
+            mcp_config="/tmp/mcp.json",
+            strict_mcp=True,
+            allowed_tools=["Read"],
+            append_system_prompt="extra context",
+            extra_flags=["--some-flag"],
+        )
+        cmd = session._build_command()
+        assert cmd[-1] == "the prompt"
 
     async def test_clean_env_strips_claude_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CLAUDECODE", "1")
@@ -139,6 +191,51 @@ class TestInvokeWithStub:
         )
         assert result.usage.input_tokens > 0
         assert result.usage.output_tokens > 0
+
+    async def test_permission_denied_scenario(
+        self, monkeypatch: pytest.MonkeyPatch, stub_command: str
+    ) -> None:
+        monkeypatch.setenv("CLAUDE_STUB_SCENARIO", "permission_denied")
+        result = await invoke(
+            "Edit a file",
+            cli_command=stub_command,
+            permission_mode="plan",
+        )
+        assert result.status == "success"
+        assert len(result.permission_denials) == 2
+        assert result.permission_denials[0].tool_name == "Edit"
+        assert result.permission_denials[0].tool_use_id == "toolu_deny_1"
+        assert result.permission_denials[1].tool_name == "Bash"
+
+    async def test_orchestrator_scenario(
+        self, monkeypatch: pytest.MonkeyPatch, stub_command: str
+    ) -> None:
+        monkeypatch.setenv("CLAUDE_STUB_SCENARIO", "orchestrator")
+        result = await invoke(
+            "Check state and decide",
+            cli_command=stub_command,
+            permission_mode="plan",
+        )
+        assert result.status == "success"
+        assert len(result.events) == 6
+        # Verify MCP tool calls show up as ToolUseBlock
+        assistant_events = [e for e in result.events if isinstance(e, AssistantEvent)]
+        assert len(assistant_events) == 2
+        tool_blocks = [
+            b for e in assistant_events for b in e.content if isinstance(b, ToolUseBlock)
+        ]
+        assert any(b.name == "mcp__foundation__spawn_agent" for b in tool_blocks)
+        assert any(b.name == "mcp__foundation__wait" for b in tool_blocks)
+
+    async def test_no_permission_denials_by_default(
+        self, monkeypatch: pytest.MonkeyPatch, stub_command: str
+    ) -> None:
+        monkeypatch.setenv("CLAUDE_STUB_SCENARIO", "success")
+        result = await invoke(
+            "Hello",
+            cli_command=stub_command,
+        )
+        assert result.permission_denials == []
 
     async def test_streaming(self, monkeypatch: pytest.MonkeyPatch, stub_command: str) -> None:
         monkeypatch.setenv("CLAUDE_STUB_SCENARIO", "success")

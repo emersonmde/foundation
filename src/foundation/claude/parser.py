@@ -9,6 +9,7 @@ from typing import Any
 from foundation.claude.events import (
     AssistantEvent,
     ContentBlock,
+    PermissionDenial,
     ResultEvent,
     StreamEvent,
     SystemInitEvent,
@@ -80,12 +81,22 @@ def parse_event(raw: dict[str, Any]) -> StreamEvent:
         )
 
     elif event_type == "result":
+        raw_denials = raw.get("permission_denials", [])
+        denials = [
+            PermissionDenial(
+                tool_name=d.get("tool_name", ""),
+                tool_use_id=d.get("tool_use_id", ""),
+                tool_input=d.get("tool_input", {}),
+            )
+            for d in raw_denials
+        ]
         return ResultEvent(
             session_id=raw.get("session_id", ""),
             result=raw.get("result", ""),
             status=raw.get("status", ""),
             duration_ms=raw.get("duration_ms", 0),
             usage=_parse_usage(raw.get("usage", {})),
+            permission_denials=denials,
         )
 
     else:

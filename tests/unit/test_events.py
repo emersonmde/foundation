@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from foundation.claude.events import (
     AssistantEvent,
+    PermissionDenial,
     ResultEvent,
     SystemInitEvent,
     TextBlock,
@@ -77,3 +78,34 @@ class TestEvents:
         assert e.status == "success"
         assert e.duration_ms == 1234
         assert e.usage.input_tokens == 100
+        assert e.permission_denials == []
+
+    def test_result_event_with_permission_denials(self) -> None:
+        denials = [
+            PermissionDenial(
+                tool_name="Edit",
+                tool_use_id="toolu_deny_1",
+                tool_input={"file_path": "/x", "old_string": "a", "new_string": "b"},
+            ),
+        ]
+        e = ResultEvent(
+            session_id="abc-123",
+            result="Denied.",
+            status="success",
+            permission_denials=denials,
+        )
+        assert len(e.permission_denials) == 1
+        assert e.permission_denials[0].tool_name == "Edit"
+        assert e.permission_denials[0].tool_use_id == "toolu_deny_1"
+
+
+class TestPermissionDenial:
+    def test_creation(self) -> None:
+        d = PermissionDenial(
+            tool_name="Bash",
+            tool_use_id="toolu_1",
+            tool_input={"command": "rm -rf /"},
+        )
+        assert d.tool_name == "Bash"
+        assert d.tool_use_id == "toolu_1"
+        assert d.tool_input["command"] == "rm -rf /"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -46,6 +46,37 @@ CREATE TABLE IF NOT EXISTS usage_records (
 """
 
 
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS action_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    iteration_id TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    details TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pending_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    processed INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    session_id TEXT,
+    mode TEXT NOT NULL DEFAULT 'plan',
+    status TEXT NOT NULL DEFAULT 'running'
+        CHECK (status IN ('running', 'completed', 'failed', 'cancelled')),
+    result_text TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT
+);
+"""
+
+
 async def get_schema_version(db: aiosqlite.Connection) -> int:
     """Get the current schema version, or 0 if no schema exists."""
     try:
@@ -67,4 +98,10 @@ async def apply_schema(db: aiosqlite.Connection) -> None:
             "INSERT INTO schema_version (version) SELECT 1"
             " WHERE NOT EXISTS (SELECT 1 FROM schema_version WHERE version = 1)"
         )
+        await db.commit()
+        version = 1
+
+    if version < 2:
+        await db.executescript(_SCHEMA_V2)
+        await db.execute("UPDATE schema_version SET version = 2")
         await db.commit()

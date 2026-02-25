@@ -71,6 +71,15 @@ class ToolResultEvent:
 
 
 @dataclass(frozen=True)
+class PermissionDenial:
+    """A tool call that was denied by the permission system."""
+
+    tool_name: str
+    tool_use_id: str
+    tool_input: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class ResultEvent:
     """Emitted once at completion."""
 
@@ -79,6 +88,7 @@ class ResultEvent:
     status: str
     duration_ms: int = 0
     usage: TokenUsage = field(default_factory=TokenUsage)
+    permission_denials: list[PermissionDenial] = field(default_factory=list)
 
 
 StreamEvent = SystemInitEvent | AssistantEvent | ToolResultEvent | ResultEvent

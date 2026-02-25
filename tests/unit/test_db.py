@@ -12,13 +12,29 @@ from foundation.db.usage import get_usage_summary, record_usage
 
 class TestSchema:
     async def test_apply_schema_creates_tables(self, db: aiosqlite.Connection) -> None:
-        # Verify tables exist by querying them
+        # Verify V1 tables exist
         async with db.execute("SELECT count(*) FROM tasks") as cursor:
             row = await cursor.fetchone()
             assert row is not None
             assert row[0] == 0
 
         async with db.execute("SELECT count(*) FROM usage_records") as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == 0
+
+        # Verify V2 tables exist
+        async with db.execute("SELECT count(*) FROM action_log") as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == 0
+
+        async with db.execute("SELECT count(*) FROM pending_messages") as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == 0
+
+        async with db.execute("SELECT count(*) FROM agent_sessions") as cursor:
             row = await cursor.fetchone()
             assert row is not None
             assert row[0] == 0
@@ -144,3 +160,96 @@ class TestUsage:
             output_tokens=100,
         )
         assert row_id > 0
+
+
+class TestActionLog:
+    async def test_insert_action(self, db: aiosqlite.Connection) -> None:
+        await db.execute(
+            "INSERT INTO action_log (iteration_id, action_type, summary, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            ("iter-001", "tool_call", "Spawned agent for task-001", "2026-02-25T12:00:00+00:00"),
+        )
+        await db.commit()
+        async with db.execute("SELECT * FROM action_log") as cursor:
+            rows = await cursor.fetchall()
+            assert len(rows) == 1
+            assert dict(rows[0])["action_type"] == "tool_call"
+
+    async def test_action_with_details(self, db: aiosqlite.Connection) -> None:
+        ts = "2026-02-25T12:00:00+00:00"
+        await db.execute(
+            "INSERT INTO action_log"
+            " (iteration_id, action_type, summary, details, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            ("iter-001", "message_sent", "Sent plan to human", '{"msg_id": "42"}', ts),
+        )
+        await db.commit()
+        query = "SELECT details FROM action_log WHERE iteration_id = ?"
+        async with db.execute(query, ("iter-001",)) as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] == '{"msg_id": "42"}'
+
+
+class TestPendingMessages:
+    async def test_insert_and_query(self, db: aiosqlite.Connection) -> None:
+        await db.execute(
+            "INSERT INTO pending_messages (text, received_at) VALUES (?, ?)",
+            ("Hello from human", "2026-02-25T12:00:00+00:00"),
+        )
+        await db.commit()
+        async with db.execute("SELECT * FROM pending_messages WHERE processed = 0") as cursor:
+            rows = await cursor.fetchall()
+            assert len(rows) == 1
+            assert dict(rows[0])["text"] == "Hello from human"
+
+    async def test_mark_processed(self, db: aiosqlite.Connection) -> None:
+        await db.execute(
+            "INSERT INTO pending_messages (text, received_at) VALUES (?, ?)",
+            ("Test message", "2026-02-25T12:00:00+00:00"),
+        )
+        await db.commit()
+        await db.execute(
+            "UPDATE pending_messages SET processed = 1 WHERE text = ?",
+            ("Test message",),
+        )
+        await db.commit()
+        query = "SELECT * FROM pending_messages WHERE processed = 0"
+        async with db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            assert len(rows) == 0
+
+
+class TestAgentSessions:
+    async def test_insert_agent_session(self, db: aiosqlite.Connection) -> None:
+        task = await create_task(db, "Test task")
+        await db.execute(
+            "INSERT INTO agent_sessions (task_id, mode, status, started_at) VALUES (?, ?, ?, ?)",
+            (task.id, "plan", "running", "2026-02-25T12:00:00+00:00"),
+        )
+        await db.commit()
+        query = "SELECT * FROM agent_sessions WHERE task_id = ?"
+        async with db.execute(query, (task.id,)) as cursor:
+            rows = await cursor.fetchall()
+            assert len(rows) == 1
+            row = dict(rows[0])
+            assert row["mode"] == "plan"
+            assert row["status"] == "running"
+
+    async def test_agent_session_status_check(self, db: aiosqlite.Connection) -> None:
+        task = await create_task(db, "Test task")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await db.execute(
+                "INSERT INTO agent_sessions (task_id, mode, status, started_at)"
+                " VALUES (?, ?, ?, ?)",
+                (task.id, "plan", "bogus_status", "2026-02-25T12:00:00+00:00"),
+            )
+
+    async def test_agent_session_requires_valid_task(self, db: aiosqlite.Connection) -> None:
+        with pytest.raises(aiosqlite.IntegrityError):
+            await db.execute(
+                "INSERT INTO agent_sessions (task_id, mode, status, started_at)"
+                " VALUES (?, ?, ?, ?)",
+                ("nonexistent-task", "plan", "running", "2026-02-25T12:00:00+00:00"),
+            )
+            await db.commit()
